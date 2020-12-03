@@ -26,39 +26,6 @@ struct GasData
 	double P, U, RO, E, gamma;
 };
 
-void allocate_memory(double* P, double* P_new, double* U, double* U_new, double* RO, double* RO_new,
-	double* E, double* E_new, double* Q, double* X, double* deltaS)
-{
-	P = new double[M];
-	P_new = new double[M];
-	U = new double[M];
-	U_new = new double[M];
-	RO = new double[M];
-	RO_new = new double[M];
-	E = new double[M];
-	E_new = new double[M];
-	Q = new double[M];
-	X = new double[M];
-	deltaS = new double[M];
-}
-
-void free_memory(double* P, double* P_new, double* U, double* U_new, double* RO, double* RO_new,
-	double* E, double* E_new, double* Q, double* X, double* deltaS)
-{
-	delete[]P;
-	delete[]P_new;
-	delete[]U;
-	delete[]U_new;
-	delete[]RO;
-	delete[]RO_new;
-	delete[]E;
-	delete[]E_new;
-	delete[]Q;
-	delete[]X;
-	delete[]deltaS;
-}
-
-
 void init_data(double* P, double* P_new, double* U, double* U_new, double* RO, double* RO_new,
 	double* NU, double* NU_new, double* E, double* E_new, double *Q, double *X, double* deltaS, vector<GasData> tasks)
 {
@@ -92,7 +59,7 @@ void init_data(double* P, double* P_new, double* U, double* U_new, double* RO, d
 }
 
 void compute_step(double* P, double* P_new, double* U, double* U_new, double* RO, double* RO_new,
-	double* E, double* E_new, double* Q, double tau, double* NU, double* NU_new, double* deltaS, double gamma)
+	double* E, double* E_new, double* Q, double tau, double* NU, double* NU_new, double* X, double* deltaS, double gamma)
 {
 	U[M - 1] = 0;
 	U_new[M - 1] = 0;
@@ -117,10 +84,17 @@ void compute_step(double* P, double* P_new, double* U, double* U_new, double* RO
 	for (int k = 0; k < M - 1; k++) {
 		P_new[k] = (gamma - 1) * E_new[k] / NU_new[k];
 	}
+
+	for (int i = 0; i < M - 1; i++)
+	{
+		X[i] = X[i] + tau * U_new[i];
+	}
 }
 
 void my_variant()
 {
+	setlocale(LC_ALL, "rus");
+
 	double *U, *E, *RO, *P, *G, *Q, *C, *NU,
 		*U_new, *E_new, *RO_new, *G_new, *C_new, *P_new, *Q_new, *NU_new;
 	double *X, *deltaS;
@@ -128,6 +102,23 @@ void my_variant()
 	double tau = 0.0005, END_TIME = 1.0, current_time = 0.0;
 	double tau_k[M];
 	double tau_uv[M];
+
+	/*
+		Allocate memory
+	*/
+	P = new double[M];
+	P_new = new double[M];
+	U = new double[M];
+	U_new = new double[M];
+	RO = new double[M];
+	RO_new = new double[M];
+	NU = new double[M];
+	NU_new = new double[M];
+	E = new double[M];
+	E_new = new double[M];
+	Q = new double[M];
+	X = new double[M];
+	deltaS = new double[M];
 
 	GasData task1_left(4.0 / 3.0, 1.0, 4.0, 0.5, 5.0 / 3.0);
 	GasData task1_right(0.0002 / 3.0, 0.0, 1.0, 0.0001, 5.0 / 3.0);
@@ -141,41 +132,7 @@ void my_variant()
 
 	while (current_time <= END_TIME) {
 		
-		compute_step(P, P_new, U, U_new, RO, RO_new, E, E_new, Q, tau, NU, NU_new, deltaS, task2.gamma);
-		// set boundary conditions
-		
-
-		/*for (int k = 0; k < M - 1; k++) {
-			C_new[k] = pow(gamma * P_new[k] / RO_new[k], 0.5);
-		}*/
-
-		/*for (int k = 0; k < M - 1; k++) {
-			C = pow(gamma * P_new[k] / RO_new[k], 0.5);
-
-			if ((U_new[k + 1] - U_new[k]) < 0)
-			{
-				double tmp = ((gamma + 1) * (U_new[k + 1] - U_new[k]) / 4);
-				Q_new[k] = (U_new[k + 1] - U_new[k]) * (((gamma + 1) * (U_new[k + 1] - U_new[k]) / 4) + pow((pow(((gamma + 1) * (U_new[k + 1] - U_new[k]) / 4), 2) + pow(C, 2)), 0.5)) / NU_new[k];
-
-			}
-			else Q_new[k] = 0;
-		}*/
-
-		/*for (int k = 0; k < M - 1; k++) {
-			G_new[k] = P_new[k] + Q_new[k];
-		}*/
-
-		/*double MV = 0, Ek = 0, Ev = 0, E_full = 0, Massa = 0;
-
-		for (int k = 0; k < M; k++)
-		{
-			MV += U_new[k] * deltaS[k];
-			Ek += U_new[k] * U_new[k] * deltaS[k] * 0.5;
-			Ev += U_new[k] * E_new[k];
-			E_full += Ek + Ev;
-			Massa += deltaS[k];
-		}*/
-		//fout << Ek <<endl;
+		compute_step(P, P_new, U, U_new, RO, RO_new, E, E_new, Q, tau, NU, NU_new, X, deltaS, task2.gamma);
 		current_time += tau;
 
 		// переписываем массивы с n+1 на n слой
@@ -184,32 +141,34 @@ void my_variant()
 			U[k] = U_new[k];
 			E[k] = E_new[k];
 			NU[k] = NU_new[k];
-			//G[k] = G_new[k];
 			P[k] = P_new[k];
-			//C[k] = C_new[k];
-			//Q[k] = Q_new[k];
-		}
-
-		// закон движения
-		for (int i = 0; i < M - 1; i++)
-		{
-			X[i] = X[i] + tau * U_new[i];
 		}
 		cout << "tau: " << tau << endl;
 	}
+
 	ofstream fout("test_1.txt");
 	//fout << "deltaS: " << deltaS << " tau " << tau << " end_Time " << end_time << endl;
 	fout << "X:" << "\t" << "U:" << "\t" << "P:" << "\t" << "RO:" << "\t" << "E:" << "\t" << "Q_new[j]:" << endl;
 	int j = 1;
 	while (j < M)
 	{
-		fout << X[j] << "\t" << U[j] << "\t" << P_new[j] << "\t" << RO_new[j] << "\t" << E[j] << "\t" << Q_new[j] << endl;
+		fout << X[j] << "\t" << U[j] << "\t" << P_new[j] << "\t" << RO_new[j] << "\t" << E[j] << endl;// "\t" << Q_new[j] << endl;
 		j++;
 	}
 	fout.close();
+
+	/*
+		Free memory
+	*/
+	delete[]P; delete[]P_new;
+	delete[]U; delete[]U_new;
+	delete[]RO; delete[]RO_new;
+	delete[]NU; delete[]NU_new;
+	delete[]E; delete[]E_new;
+	delete[]Q; delete[]X; delete[]deltaS;
 }
 
-
+/*
 void test_variant()
 {
 	for (int i = 0; i < M - 1; i++)
@@ -298,7 +257,7 @@ void test_variant()
 					min_k = min_uv;
 				}
 			}
-			if (min_k <= 1.2*tau) tau = min_k;*/
+			if (min_k <= 1.2*tau) tau = min_k;
 			//else tau = 1.2*tau;
 			//--------------------------------------- 
 
@@ -396,9 +355,9 @@ void test_variant()
 		//fout << U[j] << endl;
 		j++;
 	}
-	//fout << X_vec[M] << " " << U[M] <<" " << P[M] <<" " << RO[M] << " "<< E[M] << endl;*/
+	//fout << X_vec[M] << " " << U[M] <<" " << P[M] <<" " << RO[M] << " "<< E[M] << endl;
 	fout.close();
-}
+}*/
 
 
 
