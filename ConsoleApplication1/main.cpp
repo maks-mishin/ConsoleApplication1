@@ -9,7 +9,7 @@ using namespace std;
 const double LEFT_BOUND = 0.0;
 const double RIGHT_BOUND = 2.0;
 
-const double STEP = 0.01;
+const double STEP = 0.001;
 const size_t SIZE = (RIGHT_BOUND - LEFT_BOUND) / STEP;
 
 struct GasData
@@ -42,13 +42,11 @@ void init_data(double* P, double* P_new, double* U, double* U_new, double* RO, d
 
 		for (size_t i = 0; i < SIZE; i++) {
 			Q[i] = 0;
-			if (i <= SIZE / 2) {
-				U[i] = task_left.U;
+			if (i <= SIZE / 2 - 1) {
 				RO[i] = task_left.RO;
 				NU[i] = 1.0 / task_left.RO;
 				P[i] = task_left.P;
 				E[i] = task_left.E;
-				G[i] = P[i] + Q[i];
 			}
 			else {
 				U[i] = task_right.U;
@@ -56,11 +54,17 @@ void init_data(double* P, double* P_new, double* U, double* U_new, double* RO, d
 				NU[i] = 1.0 / task_right.RO;
 				P[i] = task_right.P;
 				E[i] = task_right.E;
-				G[i] = P[i] + Q[i];
 			}
 		}
 
-
+		for (size_t i = 0; i < SIZE; i++) {
+			if (i <= SIZE / 2) {
+				U[i] = task_left.U;
+			}
+			else {
+				U[i] = task_right.U;
+			}
+		}
 	}
 	else if(tasks.size() == 1) {
 		GasData task = tasks[0];
@@ -72,7 +76,6 @@ void init_data(double* P, double* P_new, double* U, double* U_new, double* RO, d
 			NU[i] = 1.0 / task.RO;
 			P[i] = task.P;
 			E[i] = task.E;
-			G[i] = P[i] + Q[i];
 		}
 	}
 	
@@ -89,15 +92,13 @@ void compute_step(double* P, double* P_new, double* U, double* U_new, double* RO
 	double* G, double* G_new)
 {
 
-	U[0] = 0;
+	//U[0] = 0;
 	U[SIZE - 1] = 0;
-	
-	//P[0] = 1;
 
 	for (size_t k = 1; k < SIZE - 1; k++) {
 		U_new[k] = U[k] - tau * (P[k] + Q[k] - P[k - 1] - Q[k - 1]) / deltaS[k];
 	}
-	U_new[0] = 0;
+	//U_new[0] = 0;
 	U_new[SIZE - 1] = 0;
 
 	for (size_t k = 0; k < SIZE - 1; k++) {
@@ -109,35 +110,59 @@ void compute_step(double* P, double* P_new, double* U, double* U_new, double* RO
 		E_new[k] = E[k] - (P[k] + Q[k]) * (NU_new[k] - NU[k]);
 	}
 
+	P[0] = 1;
 	for (size_t k = 0; k < SIZE - 1; k++) {
 		P_new[k] = (gamma - 1) * E_new[k] / NU_new[k];
 	}
-	//P_new[0] = 1;
-	double C;
-	for (size_t k = 0; k < SIZE - 1; k++) {
+	P_new[0] = 1;
 
+	for (size_t k = 0; k < SIZE - 1; k++) {
+		double C = 0;
 		if ((U_new[k + 1] - U_new[k]) < 0)
 		{
-			Q_new[k] = 2 * pow((U_new[k + 1] - U_new[k]), 2) / NU[k];
-
 			// Q from my schema
-			/*C = pow(gamma * P_new[k] / RO_new[k], 0.5);
-			double tmp1 = (U_new[k + 1] - U_new[k]) / NU_new[k];
-			double tmp2 = (gamma + 1) * (U_new[k + 1] - U_new[k]) / 4;
-			Q_new[k] = tmp1 * (tmp2 + sqrt(pow(tmp2, 2) + pow(C, 2)));*/
+			C = pow(gamma * P_new[k] / RO_new[k], 0.5);
+			double tmp1 = fabs(U_new[k + 1] - U_new[k]) / NU_new[k];
+			double tmp2 = (gamma + 1) * fabs(U_new[k + 1] - U_new[k]) / 4;
+			Q_new[k] = tmp1 * (tmp2 + sqrt(pow(tmp2, 2) + pow(C, 2)));
 		}
 		else Q_new[k] = 0;
 	}
-
-	for (size_t k = 0; k < SIZE - 1; k++) {
-		G_new[k] = P_new[k] + Q_new[k];
-	}
 	
-	for (size_t i = 0; i < SIZE - 1; i++)
+	for (size_t i = 0; i < SIZE; i++)
 	{
 		X[i] = X[i] + tau * U_new[i];
 	}
 }
+
+/*
+*	Function for making new tau
+*/
+double compute_next_tau(double gamma, double *P, double *RO, double *deltaS, double *tau_k, double *tau_uv, double *U, double tau) {
+	double min_k = 10;
+	double min_uv = 10;
+	double C = 0.0;
+
+	for (size_t i = 0; i < SIZE - 1; i++) {
+		C = pow(gamma * P[i] / RO[i], 0.5);
+
+		tau_k[i] = deltaS[i] / (C * RO[i]);
+		tau_uv[i] = 1.0 / (8 * (fabs(U[i + 1] - U[i])));
+	}
+	for (size_t p = 0; p < SIZE - 1; p++) {
+		if (tau_k[p] <= min_k) {
+			min_k = tau_k[p];
+		}
+
+		if (tau_uv[p] <= min_uv) {
+			min_uv = tau_uv[p];
+		}
+	}
+
+	vector<double> taus = { min_k, 1.2 * tau, min_uv };
+	return *min_element(taus.begin(), taus.end());
+}
+
 
 void calc()
 {
@@ -148,10 +173,11 @@ void calc()
 		*U_new, *E_new, *RO_new, *G_new, *C_new, *P_new, *Q_new, *NU_new;
 	double *X, *deltaS;
 
-	double tau = 0.0005, 
-		END_TIME = 0.25, 
+	double tau = 0.005,
+		END_TIME = 1.0,
 		current_time = 0.0;
 	
+
 	double* tau_k = new double[SIZE];
 	double* tau_uv = new double[SIZE];
 
@@ -186,41 +212,21 @@ void calc()
 	GasData task3_left(7.59375, 0.0, 12.65625, 0.9, 5.0 / 3.0);
 	GasData task3_right(2.0 / 7.0, 0.0, 5.0 / 14.0, 1.2, 5.0 / 3.0);
 
-	init_data(P, P_new, U, U_new, RO, RO_new, NU, NU_new, E, E_new, Q, X, deltaS, { task3_left, task3_right }, G, G_new);
+	init_data(P, P_new, U, U_new, RO, RO_new, NU, NU_new, E, E_new, Q, X, deltaS, { task2 }, G, G_new);
 
-	while (current_time <= END_TIME) {
-		
-		// Choice new tau
-		double min_k = 10;
-		double min_uv = 10;
-		double C = 0;
 
-		/*for (size_t i = 0; i < SIZE - 1; i++) {
-			C = pow(task1_left.gamma * P[i] / RO[i], 0.5);
+	ofstream fout1("test_1.txt");
+	ofstream fout_time("tau_from_time.txt");
+	fout_time << "time\t" << "tau" << endl;
+	
+	fout1 << "time\t" << "massa\t" << "impuls\t" << "Ekin\t" << "Evn\t" << "Epoln\t" << endl;
+	
+	while (current_time < END_TIME) {
 
-			tau_k[i] = deltaS[i] / (C * RO[i]);
-			//cout << "tau_k[i]: " << tau_k[i] << endl;
+		tau = compute_next_tau(task1_left.gamma, P, RO, deltaS, tau_k, tau_uv, U, tau);
+		fout_time << current_time << "\t"  << tau << endl;
 
-			if (fabs(U[i + 1] - U[i]) >= 0.000001)
-				tau_uv[i] = 1.0 / (8 * (fabs(U[i + 1] - U[i])));
-			else tau_uv[i] = 10;
-			//cout << "tau_uv[i]: " << tau_k[i] << endl;
-		}
-		for (size_t p = 0; p < SIZE - 1; p++) {
-			if (tau_k[p] <= min_k) { 
-				min_k = tau_k[p]; 
-			}
-			if (tau_uv[p] <= min_uv) { 
-				min_uv = tau_uv[p]; 
-			}
-		}*/
-		//if (min_k <= 1.2 * tau) tau = min_k;
-		//else tau = 1.2*tau;
-
-		//vector<double> taus = { min_k, tau, 1.2 * tau };
-		//tau = *min_element(taus.begin(), taus.end());
-
-		compute_step(P, P_new, U, U_new, RO, RO_new, E, E_new, Q, Q_new, tau, NU, NU_new, X, deltaS, task1_left.gamma, G, G_new);
+		compute_step(P, P_new, U, U_new, RO, RO_new, E, E_new, Q, Q_new, tau, NU, NU_new, X, deltaS, task2.gamma, G, G_new);
 		current_time += tau;
 
 		// Rewrite arrays from layer n+1 to layer n
@@ -235,17 +241,29 @@ void calc()
 			Q[k] = Q_new[k];
 		}
 		cout << "tau: " << tau << endl;
+		
+		double MV = 0, Ek = 0, Ev = 0, E_full = 0, Massa = 0;
+		for (int k = 0; k < SIZE; k++)
+		{
+			MV += U_new[k] * deltaS[k];
+			Ek += U_new[k] * U_new[k] * deltaS[k] * 0.5;
+			Ev += E_new[k] * deltaS[k];
+			Massa += deltaS[k];
+		}
+		E_full += Ek + Ev;
+		fout1 << current_time << "\t" << Massa << "\t" << MV << "\t" << Ek << "\t" << Ev << "\t" << E_full << endl;
 	}
 
-	ofstream fout("test_1.txt");
-	fout << "X:" << "\t" << "U:" << "\t" << "P:" << "\t" << "RO:" << "\t" << "E:" << "\t" << "Q_new[j]:" << endl;
-	int j = 1;
-	while (j < SIZE)
+	ofstream fout("task_2.txt");
+	fout << "X:" << "\t" << "U:" << "\t" << "P:" << "\t" << "RO:" << "\t" << "E:" << "\t" << "Q:" << endl;
+	
+
+	for (size_t j = 1; j < SIZE; j++)
 	{
-		fout << X[j] << "\t" << U[j] << "\t" << P_new[j] << "\t" << RO_new[j] << "\t" << E[j] << "\t" << Q_new[j] << endl;
-		j++;
+		fout << X[j] << "\t" << U[j] << "\t" << P[j] << "\t" << RO[j] << "\t" << E[j] << "\t" << Q[j] << endl;
 	}
 	fout.close();
+	fout1.close();
 
 	/*
 		Free memory
