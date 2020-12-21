@@ -29,7 +29,7 @@ struct GasData
 	@param tasks - vector of structs GasData
 */
 void init_data(double* P, double* P_new, double* U, double* U_new, double* RO, double* RO_new,
-	double* NU, double* NU_new, double* E, double* E_new, double* Q, double *X, double* deltaS, vector<GasData> tasks, double* G, double* G_new)
+	double* NU, double* NU_new, double* E, double* E_new, double* Q, double *X, double* deltaS, vector<GasData> tasks)
 {
 	// create mesh
 	for (size_t i = 0; i < SIZE; i++) {
@@ -49,7 +49,6 @@ void init_data(double* P, double* P_new, double* U, double* U_new, double* RO, d
 				E[i] = task_left.E;
 			}
 			else {
-				U[i] = task_right.U;
 				RO[i] = task_right.RO;
 				NU[i] = 1.0 / task_right.RO;
 				P[i] = task_right.P;
@@ -88,17 +87,19 @@ void init_data(double* P, double* P_new, double* U, double* U_new, double* RO, d
 	Function - one step of computing
 */
 void compute_step(double* P, double* P_new, double* U, double* U_new, double* RO, double* RO_new,
-	double* E, double* E_new, double* Q, double* Q_new, double tau, double* NU, double* NU_new, double* X, double* deltaS, double gamma,
-	double* G, double* G_new)
+	double* E, double* E_new, double* Q, double* Q_new, double tau, double* NU, double* NU_new, double* X, double* deltaS, double gamma)
 {
 
-	//U[0] = 0;
+	U[0] = 0;
 	U[SIZE - 1] = 0;
 
-	for (size_t k = 1; k < SIZE - 1; k++) {
-		U_new[k] = U[k] - tau * (P[k] + Q[k] - P[k - 1] - Q[k - 1]) / deltaS[k];
+	double deltaS_k = 0;
+	for (size_t k = 1; k < SIZE; k++) {
+		deltaS_k = (deltaS[k] + deltaS[k - 1]) / 2;
+		U_new[k] = U[k] - tau * (P[k] + Q[k] - P[k - 1] - Q[k - 1]) / deltaS_k;
 	}
-	//U_new[0] = 0;
+
+	U_new[0] = 0;
 	U_new[SIZE - 1] = 0;
 
 	for (size_t k = 0; k < SIZE - 1; k++) {
@@ -110,17 +111,16 @@ void compute_step(double* P, double* P_new, double* U, double* U_new, double* RO
 		E_new[k] = E[k] - (P[k] + Q[k]) * (NU_new[k] - NU[k]);
 	}
 
-	P[0] = 1;
+	//P[0] = 1;
 	for (size_t k = 0; k < SIZE - 1; k++) {
 		P_new[k] = (gamma - 1) * E_new[k] / NU_new[k];
 	}
-	P_new[0] = 1;
+	//P_new[0] = 1;
 
 	for (size_t k = 0; k < SIZE - 1; k++) {
 		double C = 0;
 		if ((U_new[k + 1] - U_new[k]) < 0)
 		{
-			// Q from my schema
 			C = pow(gamma * P_new[k] / RO_new[k], 0.5);
 			double tmp1 = fabs(U_new[k + 1] - U_new[k]) / NU_new[k];
 			double tmp2 = (gamma + 1) * fabs(U_new[k + 1] - U_new[k]) / 4;
@@ -139,16 +139,23 @@ void compute_step(double* P, double* P_new, double* U, double* U_new, double* RO
 *	Function for making new tau
 */
 double compute_next_tau(double gamma, double *P, double *RO, double *deltaS, double *tau_k, double *tau_uv, double *U, double tau) {
-	double min_k = 10;
-	double min_uv = 10;
 	double C = 0.0;
 
 	for (size_t i = 0; i < SIZE - 1; i++) {
 		C = pow(gamma * P[i] / RO[i], 0.5);
 
-		tau_k[i] = deltaS[i] / (C * RO[i]);
-		tau_uv[i] = 1.0 / (8 * (fabs(U[i + 1] - U[i])));
+		tau_k[i] = (deltaS[i] / (C * RO[i]));
+
+		if ((U[i + 1] - U[i]) != 0) {
+			tau_uv[i] = (deltaS[i] / (RO[i] * 16 * fabs(U[i + 1] - U[i])));
+		}
+		else
+			tau_uv[i] = 10;
 	}
+	
+	double min_k = tau_k[0];
+	double min_uv = tau_uv[0];
+
 	for (size_t p = 0; p < SIZE - 1; p++) {
 		if (tau_k[p] <= min_k) {
 			min_k = tau_k[p];
@@ -159,7 +166,7 @@ double compute_next_tau(double gamma, double *P, double *RO, double *deltaS, dou
 		}
 	}
 
-	vector<double> taus = { min_k, 1.2 * tau, min_uv };
+	vector<double> taus = { min_k, min_uv, 1.2 * tau };
 	return *min_element(taus.begin(), taus.end());
 }
 
@@ -169,13 +176,14 @@ void calc()
 	/*
 		Block of declaration variables
 	*/
-	double *U, *E, *RO, *P, *G, *Q, *C, *NU,
-		*U_new, *E_new, *RO_new, *G_new, *C_new, *P_new, *Q_new, *NU_new;
+	double *U, *E, *RO, *P, *Q, *NU,
+		*U_new, *E_new, *RO_new, *P_new, *Q_new, *NU_new;
 	double *X, *deltaS;
 
-	double tau = 0.005,
-		END_TIME = 1.0,
-		current_time = 0.0;
+	double tau = 0.0005,
+		END_TIME = 0.25,
+		current_time = 0.0,
+		E_begin = 0.0;
 	
 
 	double* tau_k = new double[SIZE];
@@ -194,8 +202,6 @@ void calc()
 	NU_new = new double[SIZE];
 	E = new double[SIZE];
 	E_new = new double[SIZE];
-	G = new double[SIZE];
-	G_new = new double[SIZE];
 	Q = new double[SIZE];
 	Q_new = new double[SIZE];
 	X = new double[SIZE];
@@ -212,21 +218,30 @@ void calc()
 	GasData task3_left(7.59375, 0.0, 12.65625, 0.9, 5.0 / 3.0);
 	GasData task3_right(2.0 / 7.0, 0.0, 5.0 / 14.0, 1.2, 5.0 / 3.0);
 
-	init_data(P, P_new, U, U_new, RO, RO_new, NU, NU_new, E, E_new, Q, X, deltaS, { task2 }, G, G_new);
+	init_data(P, P_new, U, U_new, RO, RO_new, NU, NU_new, E, E_new, Q, X, deltaS, { task3_left, task3_right });
 
 
 	ofstream fout1("test_1.txt");
 	ofstream fout_time("tau_from_time.txt");
+	
 	fout_time << "time\t" << "tau" << endl;
+	fout1 << "time\t" << "massa\t" << "impuls\t" << "Ekin\t" << "Evn\t" << "Efull\t" << "deltaE" << endl;
 	
-	fout1 << "time\t" << "massa\t" << "impuls\t" << "Ekin\t" << "Evn\t" << "Epoln\t" << endl;
-	
+	// begin full energy
+	for (size_t i = 0; i < SIZE; i++)
+	{
+		E_begin += deltaS[i] * E[i];
+	}
+
 	while (current_time < END_TIME) {
+		
+		// choice new tau
+		tau = compute_next_tau(task3_left.gamma, P, RO, deltaS, tau_k, tau_uv, U, tau);
+		
+		// write time:tau to file 
+		fout_time << current_time << "\t" << tau << endl;
 
-		tau = compute_next_tau(task1_left.gamma, P, RO, deltaS, tau_k, tau_uv, U, tau);
-		fout_time << current_time << "\t"  << tau << endl;
-
-		compute_step(P, P_new, U, U_new, RO, RO_new, E, E_new, Q, Q_new, tau, NU, NU_new, X, deltaS, task2.gamma, G, G_new);
+		compute_step(P, P_new, U, U_new, RO, RO_new, E, E_new, Q, Q_new, tau, NU, NU_new, X, deltaS, task3_left.gamma);
 		current_time += tau;
 
 		// Rewrite arrays from layer n+1 to layer n
@@ -237,24 +252,37 @@ void calc()
 			RO[k] = RO_new[k];
 			NU[k] = NU_new[k];
 			P[k] = P_new[k];
-			G[k] = G_new[k];
 			Q[k] = Q_new[k];
 		}
 		cout << "tau: " << tau << endl;
 		
-		double MV = 0, Ek = 0, Ev = 0, E_full = 0, Massa = 0;
+		// numerical checking laws of conservation
+		double pulse = 0, E_kin = 0, E_inner = 0, E_full = 0, mass = 0, deltaE = 0, A = 0;
+		
 		for (int k = 0; k < SIZE; k++)
 		{
-			MV += U_new[k] * deltaS[k];
-			Ek += U_new[k] * U_new[k] * deltaS[k] * 0.5;
-			Ev += E_new[k] * deltaS[k];
-			Massa += deltaS[k];
+			mass += deltaS[k];
 		}
-		E_full += Ek + Ev;
-		fout1 << current_time << "\t" << Massa << "\t" << MV << "\t" << Ek << "\t" << Ev << "\t" << E_full << endl;
+		for (int k = 0; k < SIZE - 1; k++)
+		{
+			pulse += U[k] * deltaS[k];
+			E_kin += deltaS[k] * (U[k] * U[k] + U[k + 1] * U[k + 1]) / 4.0;
+			E_inner += E[k] * deltaS[k];
+		}
+
+		// job on boundary of area
+		A = (P[0] * U[0] + P[SIZE - 2] * U[SIZE - 1]) * tau;
+
+		E_full = E_kin + E_inner;
+		
+		// disbalance of full energy
+		deltaE = (E_full - E_begin - A) / E_begin;
+		
+		// write to file
+		fout1 << current_time << "\t" << mass << "\t" << pulse << "\t" << E_kin << "\t" << E_inner << "\t" << E_full << "\t" << deltaE << endl;
 	}
 
-	ofstream fout("task_2.txt");
+	ofstream fout("task_1.txt");
 	fout << "X:" << "\t" << "U:" << "\t" << "P:" << "\t" << "RO:" << "\t" << "E:" << "\t" << "Q:" << endl;
 	
 
@@ -264,6 +292,7 @@ void calc()
 	}
 	fout.close();
 	fout1.close();
+	fout_time.close();
 
 	/*
 		Free memory
